@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>消防抽检端</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<header>
+  <h1><span class="lamp">🧯</span> 消防部门夜间用电抽检 <span class="muted" style="font-size:12px">检查结果直接进违规档案与安全评级</span></h1>
+  <div class="who"><b th:text="${displayName}">消防</b>（<span th:text="${username}">fire</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+  <div class="card">
+    <h2>用电消防抽检登记</h2>
+    <div class="row">
+      <div><label>受检摊位</label><select id="f-stall"></select></div>
+      <div><label>检查结果</label>
+        <select id="f-result">
+          <option value="PASS">检查合格</option>
+          <option value="RECTIFY">限期整改</option>
+          <option value="FAIL">不合格·立即停业</option>
+        </select></div>
+      <div><label>扣分</label><input id="f-points" type="number" value="6"></div>
+    </div>
+    <label>检查发现</label><textarea id="f-findings">配电箱周边堆放可燃物，插线板串联使用，立即清理并整改</label>
+    <label>整改照片URL</label><input id="f-photo" value="/photos/fire-rectify-demo.jpg">
+    <button class="danger" onclick="submitInspection()">提交抽检结论</button>
+  </div>
+  <div class="card">
+    <h2>抽检记录</h2>
+    <table>
+      <thead><tr><th>时间</th><th>摊位</th><th>检查员</th><th>结果</th><th>扣分</th><th>发现/照片</th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+</div>
+<script th:src="@{/js/app.js}"></script>
+<script>
+async function load() {
+  const apps = await api('GET', '/api/applications');
+  document.getElementById('f-stall').innerHTML = apps.map(a=>`<option value="${a.stallNo}">${a.stallNo} ${esc(a.stallName)} ${a.openFlame?'🔥':''}</option>`).join('');
+  const fires = await api('GET', '/api/fires');
+  document.getElementById('tb').innerHTML = fires.map(f=>`
+    <tr><td>${new Date(f.createdAt).toLocaleString('zh-CN')}</td><td><b>${esc(f.stallNo)}</b></td>
+    <td>${esc(f.firefighterUsername)}</td>
+    <td><span class="badge ${f.result==='PASS'?'b-OPERATING':f.result==='RECTIFY'?'b-PENDING':'b-POWER_CUT'}">${enumLabel(f.result)}</span></td>
+    <td>${f.deductPoints}</td><td>${esc(f.findings)}<br><span class="muted">📷${esc(f.rectifyPhotoUrl||'-')}</span></td></tr>`).join('')
+    || '<tr><td colspan="6" class="muted">暂无抽检记录</td></tr>';
+}
+async function submitInspection(){
+  try{ await api('POST','/api/fire/inspections',{stallNo:v('f-stall'),result:v('f-result'),findings:v('f-findings'),points:+v('f-points'),rectifyPhotoUrl:v('f-photo')});
+    toast('抽检结论已提交，不合格摊位已停业并记入档案',true); load(); }
+  catch(e){ toast(e.message,false); }
+}
+function v(id){return document.getElementById(id).value;}
+load();
+</script>
+</body>
+</html>

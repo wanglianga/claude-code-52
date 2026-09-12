@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>收费台</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<header>
+  <h1><span class="lamp">💰</span> 收费工作台 <span class="muted" style="font-size:12px">电费预付 · 临时加电费 · 欠费断电 · 赔付台账</span></h1>
+  <div class="who"><b th:text="${displayName}">收费</b>（<span th:text="${username}">cashier</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>电费预存（一个摊主一个账户，多摊共用）</h2>
+      <div class="row">
+        <div><label>摊主账号</label><select id="c-vendor"></select></div>
+        <div><label>金额(元)</label><input id="c-amount" type="number" value="100"></div>
+        <div style="flex:0"><button class="green" onclick="recharge()">充值</button></div>
+      </div>
+      <button class="danger" onclick="enforce()">巡检预付不足并断电</button>
+      <div class="muted">余额为负即在营摊位自动断电；电价 1.5 元/度，临时加电 2 元/100W。</div>
+    </div>
+    <div class="card">
+      <h2>账户台账</h2>
+      <table>
+        <thead><tr><th>摊主</th><th>余额</th><th>电费</th><th>加电费</th><th>赔付</th><th>状态</th></tr></thead>
+        <tbody id="tb-acc"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <h2>事件收费/赔付记录（时间线）</h2>
+    <div id="events"></div>
+  </div>
+</div>
+<script th:src="@{/js/app.js}"></script>
+<script>
+async function load() {
+  const users = await api('GET', '/api/users');
+  const vendors = users.filter(u=>u.role==='VENDOR');
+  document.getElementById('c-vendor').innerHTML = vendors.map(u=>`<option value="${u.username}">${u.username} ${esc(u.name)}</option>`).join('');
+  const bills = await api('GET', '/api/billing');
+  document.getElementById('tb-acc').innerHTML = bills.map(b=>`
+    <tr><td><b>${esc(b.vendorUsername)}</b></td>
+    <td class="${b.prepaidBalanceWan<0?'err':b.lowBalance?'':'ok'}">${b.prepaidBalanceWan.toFixed(2)}${b.lowBalance?' ⚠️余额不足':''}${b.powerCutForArrears?' 已断电':''}</td>
+    <td>${b.totalConsumedWan.toFixed(2)}</td><td>${b.totalTempAddFeeWan.toFixed(2)}</td><td>${b.totalCompensationWan.toFixed(2)}</td>
+    <td><details><summary>流水</summary><ul>${(b.ledger||[]).map(l=>`<li>${new Date(l.at).toLocaleString('zh-CN')} ${esc(l.type)} ${l.amount}元 ${esc(l.remark)}</li>`).join('')}</ul></details></td></tr>`).join('')
+    || '<tr><td colspan="6" class="muted">暂无账户</td></tr>';
+  const events = await api('GET', '/api/events');
+  document.getElementById('events').innerHTML = events.filter(e=>(e.timeline||[]).some(t=>t.actorRole==='CASHIER')).map(e=>`
+    <details style="border-bottom:1px solid var(--line);padding:6px 0"><summary><b>${e.id}</b> ${e.type} 摊${esc(e.primaryStallNo)}</summary>
+    <ul>${e.timeline.filter(t=>t.actorRole==='CASHIER').map(t=>`<li>${new Date(t.at).toLocaleString('zh-CN')} ${esc(t.action)}</li>`).join('')}</ul></details>`).join('')
+    || '<div class="muted">暂无事件收费记录</div>';
+}
+async function recharge(){ try{ await api('POST','/api/cashier/recharge',{vendor:v('c-vendor'),amount:+v('c-amount')}); toast('充值成功',true); load();}catch(e){toast(e.message,false);} }
+async function enforce(){ try{ const r=await api('POST','/api/cashier/enforce-arrears',{}); toast('断电摊位：'+(r.powerCutStalls.join('、')||'无'),true); load();}catch(e){toast(e.message,false);} }
+function v(id){return document.getElementById(id).value;}
+load();
+</script>
+</body>
+</html>

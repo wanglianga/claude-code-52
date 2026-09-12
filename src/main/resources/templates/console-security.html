@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>安保处置台</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<header>
+  <h1><span class="lamp">🛡️</span> 安保现场处置台 <span class="muted" style="font-size:12px">险情首报 · 到场疏散 · 事件跟踪</span></h1>
+  <div class="who"><b th:text="${displayName}">安保</b>（<span th:text="${username}">security</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>发现险情立即上报（跳闸/发热/私拉/水浸/异味）</h2>
+      <div class="row">
+        <div><label>类型</label>
+          <select id="i-type">
+            <option value="TRIP">跳闸</option><option value="OVERHEAT">线路发热</option>
+            <option value="PRIVATE_WIRING">私拉电线</option><option value="WATERLOG">雨水浸泡</option>
+            <option value="ODOR_COMPLAINT">顾客投诉异味</option>
+          </select></div>
+        <div><label>摊位</label><select id="i-stall"></select></div>
+        <div><label>严重度</label><input id="i-sev" type="number" value="4"></div>
+      </div>
+      <label>现场情况</label><textarea id="i-desc">巡逻发现配电箱附近有焦糊味，疑似线路过载，顾客围观</textarea>
+      <button class="danger" onclick="report()">上报并触发紧急断电</button>
+    </div>
+    <div class="card">
+      <h2>到场处置留痕</h2>
+      <div class="row"><div><label>处置中事件</label><select id="d-event"></select></div></div>
+      <label>处置动作</label>
+      <textarea id="d-action">已拉起警戒线、疏散围观顾客、使用灭火器值守，等待电工排查</textarea>
+      <button class="blue" onclick="dispatch()">记录到场处置</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>用电事件时间线（五方同链）</h2>
+    <div id="events"></div>
+  </div>
+</div>
+<script th:src="@{/js/app.js}"></script>
+<script>
+async function load() {
+  const apps = await api('GET', '/api/applications');
+  document.getElementById('i-stall').innerHTML = apps.map(a=>`<option value="${a.stallNo}">${a.stallNo} ${esc(a.stallName)}</option>`).join('');
+  const events = await api('GET', '/api/events');
+  document.getElementById('d-event').innerHTML = events.filter(e=>e.status==='OPEN').map(e=>`<option value="${e.id}">${e.id} ${e.type} 摊${esc(e.primaryStallNo)}</option>`).join('') || '<option value="">无</option>';
+  document.getElementById('events').innerHTML = events.map(e=>`
+    <details ${e.status==='OPEN'?'open':''} style="border-bottom:1px solid var(--line);padding:6px 0">
+      <summary><b>${e.id}</b> ${e.type} · 摊${esc(e.primaryStallNo)} ${badge(e.status)}
+        <span class="muted">摊主 ${esc(e.vendorUsername||'-')} / 电工 ${esc(e.electricianUsername||'-')} / 管理员 ${esc(e.adminUsername||'-')} / 安保 ${esc(e.securityUsername||'-')} / 收费 ${esc(e.cashierUsername||'-')}</span></summary>
+      <div class="muted">受影响：${(e.affectedStalls||[]).map(esc).join('、')} ｜ 故障点：${esc(e.faultPoint||'待电工确认')} ｜ 责任：${e.responsibility?enumLabel(e.responsibility):'待定'}</div>
+      <ul>${(e.timeline||[]).map(t=>`<li>${new Date(t.at).toLocaleString('zh-CN')} <b>${esc(t.actor)}</b>：${esc(t.action)}</li>`).join('')}</ul>
+    </details>`).join('') || '<div class="muted">暂无事件</div>';
+}
+async function report(){ try{ const r=await api('POST','/api/security/incidents',{type:v('i-type'),stallNo:v('i-stall'),description:v('i-desc'),severity:+v('i-sev')}); toast(`事件 ${r.event.id} 已建立，同箱断电、五方已通知`,true); load();}catch(e){toast(e.message,false);} }
+async function dispatch(){ try{ await api('POST',`/api/security/events/${v('d-event')}/dispatch`,{action:v('d-action')}); toast('处置已记录',true); load();}catch(e){toast(e.message,false);} }
+function v(id){return document.getElementById(id).value;}
+load();
+</script>
+</body>
+</html>

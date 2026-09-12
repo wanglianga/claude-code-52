@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>市场管理员指挥台</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<header>
+  <h1><span class="lamp">🎛️</span> 市场管理员指挥台 <span class="muted" style="font-size:12px">审批 · 跳闸追责 · 风控 · 摊位变动 · 闭市评级</span></h1>
+  <div class="who"><b th:text="${displayName}">管理员</b>（<span th:text="${username}">admin</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+  <div class="grid3">
+    <div class="card"><div class="stat" id="s-all">-</div><small>摊位总数（营业/断电/停业）</small></div>
+    <div class="card"><div class="stat" id="s-pending">-</div><small>待审批（高风险复核）</small></div>
+    <div class="card"><div class="stat" id="s-events">-</div><small>处置中用电事件</small></div>
+  </div>
+
+  <div class="card">
+    <h2>配电箱负载总览（同箱负载是加电/审批硬约束）</h2>
+    <div id="boxes"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>① 高风险申请复核</h2>
+      <div id="pending"></div>
+    </div>
+    <div class="card">
+      <h2>② 新报用电事件（跳闸/发热/私拉/水浸/异味）</h2>
+      <div class="row">
+        <div><label>事件类型</label>
+          <select id="i-type">
+            <option value="TRIP">跳闸</option><option value="OVERHEAT">线路发热</option>
+            <option value="PRIVATE_WIRING">私拉电线</option><option value="WATERLOG">雨水浸泡</option>
+            <option value="ODOR_COMPLAINT">顾客投诉异味</option>
+          </select></div>
+        <div><label>事发摊位</label><select id="i-stall"></select></div>
+        <div><label>严重度1-5</label><input id="i-sev" type="number" value="4"></div>
+      </div>
+      <label>情况描述</label><textarea id="i-desc">BXA-02 箱跳闸，多个摊位断电，现场有焦糊味</textarea>
+      <button class="danger" onclick="reportEvent()">报告并紧急断电·通知五方</button>
+      <div class="muted">提交后同箱在营摊位全部断电，摊主/电工/管理员/安保/收费自动串入同一事件时间线。</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>③ 处置中事件：恢复供电前核查与责任认定</h2>
+    <div id="events"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>④ 高风险摊位风控</h2>
+      <div class="row">
+        <div><label>摊位</label><select id="r-stall"></select></div>
+        <div><label>备用线路箱（迁移用）</label><select id="r-box"></select></div>
+      </div>
+      <div class="row">
+        <label style="margin-top:14px"><input type="checkbox" id="r-restrict" style="width:auto"> 临时限制设备开启</label>
+        <label style="margin-top:14px"><input type="checkbox" id="r-recheck" style="width:auto"> 要求电工复检</label>
+        <label style="margin-top:14px"><input type="checkbox" id="r-migrate" style="width:auto"> 迁移备用线路</label>
+      </div>
+      <label>被限制设备名（逗号分隔，需与申报/加装设备名一致）</label>
+      <input id="r-devices" value="电烤炉">
+      <label>市场广播（同步记录）</label>
+      <input id="r-broadcast" value="各位摊主注意：A01 摊位暂停使用大功率设备，复检合格前请勿合闸">
+      <div class="row">
+        <div><label>收费调整（元，+返还/-加收）</label><input id="r-fee" type="number" value="0"></div>
+      </div>
+      <label>原因</label><input id="r-reason" value="明火+高功率，晚高峰超载风险">
+      <button class="blue" onclick="applyRisk()">下达风控措施</button>
+    </div>
+
+    <div class="card">
+      <h2>⑤ 摊位现场变动（责任链不断开）</h2>
+      <div class="row">
+        <div><label>摊位</label><select id="o-stall"></select></div>
+        <div><label>电表终值(Wh)·撤摊用</label><input id="o-meter" type="number" value="5000"></div>
+      </div>
+      <button class="secondary" onclick="withdraw()">夜间撤摊（读表结算断电）</button>
+      <hr style="border-color:var(--line)">
+      <div class="row">
+        <div><label>转让给摊主账号</label>
+          <select id="o-to"></select></div>
+      </div>
+      <label>转让说明</label><input id="o-tremark" value="摊主家中急事，连夜转让同乡经营，用电责任一并移交">
+      <button class="secondary" onclick="transfer()">临时摊位转让（责任切到受让方）</button>
+      <hr style="border-color:var(--line)">
+      <div class="row">
+        <div><label>共用设备的另一摊位</label><select id="o-other"></select></div>
+      </div>
+      <label>共用设备描述</label><input id="o-share" value="共用一台 2000W 电炸炉，两摊轮流使用">
+      <button class="secondary" onclick="share()">登记多摊共用设备</button>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>⑥ 预付不足巡检 / 闭市</h2>
+      <button class="danger" onclick="enforce()">巡检欠费并断电</button>
+      <div class="row" style="margin-top:8px">
+        <div><label>统一电表终值(Wh)</label><input id="m-end" type="number" value="5000"></div>
+        <div style="flex:0"><button class="green" onclick="closeMarket()">夜市闭市：结算归档评级</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>已下达风控措施</h2>
+      <div id="risklist"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⑦ 闭市档案 · 下期摊位分配与安全评级</h2>
+    <table>
+      <thead><tr><th>评级</th><th>摊位</th><th>摊主</th><th>用电量/电费</th><th>违规扣分</th><th>临时加电</th><th>跳闸责任</th><th>整改照片</th><th>分配积分/建议</th></tr></thead>
+      <tbody id="tb-arc"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>全部摊位申请</h2>
+    <table>
+      <thead><tr><th>摊位</th><th>摊主</th><th>区域/箱</th><th>类型</th><th>明火</th><th>状态</th><th>风险</th><th>核定W</th></tr></thead>
+      <tbody id="tb-all"></tbody>
+    </table>
+  </div>
+</div>
+
+<script th:src="@{/js/app.js}"></script>
+<script th:inline="javascript">
+const me = /*[[${username}]]*/ 'admin01';
+</script>
+<script>
+let apps = [], vendors = [];
+async function load() {
+  apps = await api('GET', '/api/applications');
+  const ov = await api('GET', '/api/overview');
+  document.getElementById('s-all').textContent = `${ov.totalStalls}（${ov.operating}/${ov.powerCut}/${ov.suspended}）`;
+  document.getElementById('s-pending').textContent = ov.pendingApproval;
+  document.getElementById('s-events').textContent = ov.openEvents;
+
+  document.getElementById('boxes').innerHTML = `<table><thead><tr><th>箱号</th><th>区域</th><th>负载/容量</th><th>负载率</th><th>在营</th><th>状态</th></tr></thead><tbody>${
+    ov.boxes.map(u => { const rate = parseInt(u.usageRate); const cls = rate>=100?'over':rate>=80?'warn':'';
+      return `<tr><td>${esc(u.box)}${u.backup?' <span class="pill">备用</span>':''}</td><td>${esc(u.zone)}</td>
+      <td>${u.loadW}W/${u.safeCapacityW}W</td>
+      <td><div class="bar"><div class="${cls}" style="width:${Math.min(100,rate)}%"></div></div>${u.usageRate}</td>
+      <td>${u.stalls}</td><td>${u.status==='NORMAL'?'<span class="ok">正常</span>':'<span class="err">'+u.status+'</span>'}</td></tr>`;
+    }).join('')}</tbody></table>`;
+
+  const pending = apps.filter(a => a.status === 'PENDING');
+  document.getElementById('pending').innerHTML = pending.map(a => `
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+      <b>${a.stallNo} ${esc(a.stallName)}</b> ${esc(a.vendorUsername)} · 风险分 <b class="err">${a.riskScore}</b>${a.highRisk?' 🔴':''}
+      <div class="muted">拟接 ${esc(a.boxId)} · 核定 ${a.approvedPowerW}W · ${esc(a.decisionRemark)}</div>
+      <ul class="muted">${(a.riskFactors||[]).map(f=>`<li>${esc(f)}</li>`).join('')}</ul>
+      <button class="green" style="margin:0" onclick="decide('${a.id}','approve')">复核批准</button>
+      <button class="danger" style="margin:0" onclick="decide('${a.id}','reject')">驳回</button>
+    </div>`).join('') || '<div class="muted">暂无待审批</div>';
+
+  fillStallSelects(apps);
+  const users = await api('GET', '/api/users');
+  vendors = users.filter(u => u.role === 'VENDOR');
+  document.getElementById('o-to').innerHTML = vendors.map(u=>`<option value="${u.username}">${u.username} ${esc(u.name)}</option>`).join('');
+
+  const events = await api('GET', '/api/events');
+  document.getElementById('events').innerHTML = events.filter(e=>e.status!=='CLOSED').map(renderEvent).join('') || '<div class="muted">暂无处置中事件</div>';
+
+  const risks = await api('GET', '/api/risks');
+  document.getElementById('risklist').innerHTML = risks.map(r=>`
+    <div style="border-bottom:1px solid var(--line);padding:6px 0;font-size:13px">
+      <b>${r.id}</b> 摊${esc(r.stallNo)} ${r.status==='ACTIVE'?'<span class="badge b-OPEN">生效中</span>':'<span class="badge b-CLOSED">已解除</span>'}<br>
+      <span class="muted">限制设备:${r.restrictDevices?esc(r.restrictedDevices.join(',')):'-'} 复检:${r.requireRecheck?(r.recheckPassed?'✓通过':'待检'):'-'} 迁线:${r.migrateLine?esc(r.targetBoxId):'-'} 收费调整:${r.feeAdjustmentWan}元</span>
+      <div>📢 ${esc(r.broadcast||'')}</div>
+      ${r.status==='ACTIVE'?`<button class="secondary" style="margin:4px 0 0" onclick="liftRisk('${r.id}')">解除措施</button>`:''}
+    </div>`).join('') || '<div class="muted">暂无风控措施</div>';
+
+  const arcs = await api('GET', '/api/archives');
+  document.getElementById('tb-arc').innerHTML = arcs.map(a=>`
+    <tr><td><span class="badge b-${a.grade}">${a.grade}</span></td><td><b>${esc(a.stallNo)}</b><br>${esc(a.stallName)}</td>
+    <td>${esc(a.vendorUsername)}</td><td>${a.consumedWh}Wh<br>${a.electricityFeeWan}元</td>
+    <td>${a.violationPoints}<br><span class="muted" style="font-size:11px">${(a.violations||[]).map(esc).join('；')}</span></td>
+    <td>${a.tempAddCount}次/${a.tempAddFeeWan}元</td>
+    <td>${(a.incidentResponsibilities||[]).map(esc).join('；')||'-'}<br>事故${a.incidentCount}起</td>
+    <td>${(a.rectifyPhotos||[]).map(p=>`<div class="muted">📷${esc(p)}</div>`).join('')||'-'}</td>
+    <td><b>${a.allocationScore}</b><div class="muted">${esc(a.advice)}</div></td></tr>`).join('')
+    || '<tr><td colspan="9" class="muted">闭市后生成档案</td></tr>';
+
+  document.getElementById('tb-all').innerHTML = apps.map(a=>`
+    <tr><td><b>${esc(a.stallNo)}</b></td><td>${esc(a.vendorUsername)}</td><td>${esc(a.zone)}<br><span class="muted">${esc(a.boxId||'-')}</span></td>
+    <td>${esc(a.stallType)}</td><td>${a.openFlame?'🔥':'-'}</td><td>${badge(a.status)}</td>
+    <td>${a.riskScore}${a.highRisk?'🔴':''}</td><td>${a.approvedPowerW}</td></tr>`).join('');
+}
+function fillStallSelects(apps) {
+  const opts = apps.map(a=>`<option value="${a.stallNo}">${a.stallNo} ${esc(a.stallName)}（${a.status}）</option>`).join('');
+  ['i-stall','r-stall','o-stall','o-other'].forEach(id => { const el=document.getElementById(id); if (el) el.innerHTML = opts; });
+}
+function renderEvent(e) {
+  const disabled = e.status !== 'OPEN';
+  return `<details open style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px">
+    <summary><b>${e.id}</b> ${e.type} · 摊${esc(e.primaryStallNo)} ${badge(e.status)} 严重度${e.severity}</summary>
+    <div class="muted">受影响摊位：${(e.affectedStalls||[]).map(esc).join('、')} ｜ 故障点：${esc(e.faultPoint||'电工尚未确认')} ｜ 整改：${e.rectified?'<span class="ok">已完成</span>':'<span class="err">未完成</span>'}</div>
+    <div class="row" style="margin-top:8px">
+      <div><label>责任认定</label>
+        <select id="rs-${e.id}">
+          <option value="VENDOR">摊主</option><option value="ELECTRICIAN">电工</option>
+          <option value="MARKET" selected>市场方</option><option value="FORCE_MAJURE">不可抗力</option>
+        </select></div>
+      <div><label>扣分</label><input id="pt-${e.id}" type="number" value="${e.deductPoints||0}"></div>
+      <div><label>食品损耗(元)</label><input id="fl-${e.id}" type="number" value="0"></div>
+      <div><label>顾客赔付(元)</label><input id="cp-${e.id}" type="number" value="0"></div>
+      <div><label>暂停营业摊位</label><input id="ss-${e.id}" placeholder="如 A01 或留空"></div>
+    </div>
+    <label>责任说明</label><input id="lr-${e.id}" value="经现场核查，过载跳闸系线路承载不足，市场方负责更换插座并增容">
+    <label style="margin-top:8px"><input type="checkbox" id="rc-${e.id}" checked style="width:auto"> 核查无误立即恢复供电（须电工已确认故障点并整改）</label>
+    <div style="margin-top:6px">
+      <button class="green" style="margin:0" ${disabled?'disabled':''} onclick="resolve('${e.id}')">责任认定+恢复核查</button>
+      <button class="secondary" style="margin:0" ${disabled?'disabled':''} onclick="closeEvt('${e.id}')">关闭事件归档</button>
+    </div>
+    <ul class="muted" style="margin-top:8px">${(e.timeline||[]).map(t=>`<li>${new Date(t.at).toLocaleString('zh-CN')} <b>${esc(t.actor)}</b>[${roleLabel(t.actorRole)}]：${esc(t.action)}</li>`).join('')}</ul>
+  </details>`;
+}
+async function decide(id, act) {
+  const remark = act === 'reject' ? (prompt('驳回原因') || '') : '同意送电，加强巡视';
+  try { await api('POST', `/api/admin/applications/${id}/${act}`, { remark }); toast('已处理', true); load(); }
+  catch (e) { toast(e.message, false); }
+}
+async function reportEvent() {
+  try { const r = await api('POST', '/api/admin/incidents', { type: v('i-type'), stallNo: v('i-stall'), description: v('i-desc'), severity: +v('i-sev') });
+    toast(`事件 ${r.event.id} 已建立，同箱摊位已断电，五方已串入`, true); load(); }
+  catch (e) { toast(e.message, false); }
+}
+async function resolve(id) {
+  try {
+    const r = await api('POST', `/api/admin/incidents/${id}/resolve`, {
+      responsibility: v('rs-'+id), points: +v('pt-'+id), foodLoss: +v('fl-'+id),
+      customerCompensation: +v('cp-'+id), suspendStall: v('ss-'+id), liabilityRemark: v('lr-'+id),
+      recoverNow: c('rc-'+id)
+    });
+    toast('责任认定与核查完成'+(r.event.status==='RECOVERED'?'，已恢复供电':''), true); load();
+  } catch (e) { toast(e.message, false); }
+}
+async function closeEvt(id){ try{ await api('POST',`/api/admin/incidents/${id}/close`,{}); toast('事件已关闭',true); load();}catch(e){toast(e.message,false);} }
+async function applyRisk() {
+  try {
+    await api('POST', '/api/admin/risks', {
+      stallNo: v('r-stall'), restrictDevices: c('r-restrict'), restrictedDevices: v('r-devices'),
+      requireRecheck: c('r-recheck'), migrateLine: c('r-migrate'), targetBoxId: v('r-box'),
+      broadcast: v('r-broadcast'), feeAdjustment: +v('r-fee'), reason: v('r-reason')
+    });
+    toast('风控措施已下达，广播与收费调整已同步记录', true); load();
+  } catch (e) { toast(e.message, false); }
+}
+async function liftRisk(id){ try{ await api('POST',`/api/admin/risks/${id}/lift`,{}); toast('已解除',true); load();}catch(e){toast(e.message,false);} }
+async function withdraw(){ try{ await api('POST','/api/admin/stalls/withdraw',{stallNo:v('o-stall'),meterEndWh:+v('o-meter'),remark:'夜间撤摊'}); toast('撤摊完成，电费已结算',true); load();}catch(e){toast(e.message,false);} }
+async function transfer(){ try{ await api('POST','/api/admin/stalls/transfer',{stallNo:v('o-stall'),toVendor:v('o-to'),remark:v('o-tremark')}); toast('转让完成，用电责任已切到受让方',true); load();}catch(e){toast(e.message,false);} }
+async function share(){ try{ await api('POST','/api/admin/stalls/share-device',{stallNo:v('o-stall'),otherStall:v('o-other'),deviceDesc:v('o-share')}); toast('共用设备已双向登记',true); load();}catch(e){toast(e.message,false);} }
+async function enforce(){ try{ const r=await api('POST','/api/admin/billing/enforce-arrears',{}); toast('欠费断电摊位：'+(r.powerCutStalls.join('、')||'无'),true); load();}catch(e){toast(e.message,false);} }
+async function closeMarket(){ try{ const r=await api('POST','/api/admin/close-market',{meterEndWh:+v('m-end')}); toast(`闭市完成，归档 ${r.archived} 个摊位`,true); load();}catch(e){toast(e.message,false);} }
+function v(id){ return document.getElementById(id).value; }
+function c(id){ return document.getElementById(id).checked; }
+(async () => {
+  const boxes = await api('GET', '/api/boxes');
+  document.getElementById('r-box').innerHTML = boxes.filter(u=>u.box.backupLine).map(u=>`<option value="${u.box.id}">${u.box.code}（${u.box.zone}）</option>`).join('');
+  load();
+})();
+</script>
+</body>
+</html>

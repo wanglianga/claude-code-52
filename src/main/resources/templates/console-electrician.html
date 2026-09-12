@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电工工作台</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<header>
+  <h1><span class="lamp">⚡</span> 电工工作台 <span class="muted" style="font-size:12px">现场接线 · 故障确认整改 · 高风险复检</span></h1>
+  <div class="who"><b th:text="${displayName}">电工</b>（<span th:text="${username}">electrician</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>① 现场接线送电</h2>
+      <div class="row">
+        <div><label>已批准待接线申请</label><select id="c-app"></select></div>
+        <div><label>插座编号</label><input id="c-socket" value="SOCKET-A01-01"></div>
+      </div>
+      <div class="row">
+        <div><label>漏保状态</label><input id="c-rcd" value="漏保试跳正常·30mA"></div>
+        <div><label>电表初值(Wh)</label><input id="c-meter" type="number" value="0"></div>
+      </div>
+      <div class="row">
+        <div><label>线缆照片URL</label><input id="c-photo" value="/photos/cable-demo.jpg"></div>
+        <div><label>摊主签字URL</label><input id="c-sign" value="/signatures/vendor-sign.png"></div>
+      </div>
+      <label>备注</label><input id="c-remark" value="线缆架空敷设，漏保测试合格">
+      <button onclick="connect()">确认接线并送电（摊主已签字）</button>
+    </div>
+
+    <div class="card">
+      <h2>② 故障点确认与整改（恢复送电前置）</h2>
+      <div class="row"><div><label>处置中事件</label><select id="f-event"></select></div></div>
+      <label>故障点确认</label><input id="f-point" value="BXA-02 箱 3 号插座因过载发热，绝缘层碳化">
+      <div class="row">
+        <div><label>整改照片URL</label><input id="f-photo" value="/photos/rectify-demo.jpg"></div>
+      </div>
+      <label style="margin-top:10px"><input type="checkbox" id="f-done" checked style="width:auto"> 整改已完成（更换插座、重新压接）</label>
+      <button class="blue" onclick="confirmFault()">提交故障确认/整改</button>
+      <h2 style="margin-top:16px">③ 整改完成后恢复送电</h2>
+      <button class="green" onclick="recover()">核验恢复供电</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>高风险摊位 · 管理员要求电工复检</h2>
+    <table>
+      <thead><tr><th>措施号</th><th>摊位</th><th>原因</th><th>要求复检</th><th>复检结论</th><th>操作</th></tr></thead>
+      <tbody id="tb-risks"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>配电箱实时负载</h2>
+    <table>
+      <thead><tr><th>箱号</th><th>区域</th><th>负载/安全容量</th><th>负载率</th><th>在营摊位</th><th>状态</th></tr></thead>
+      <tbody id="tb-boxes"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>处置中用电事件时间线（五方串联）</h2>
+    <div id="events"></div>
+  </div>
+</div>
+
+<script th:src="@{/js/app.js}"></script>
+<script>
+async function load() {
+  const apps = await api('GET', '/api/applications');
+  const approved = apps.filter(a => a.status === 'APPROVED');
+  document.getElementById('c-app').innerHTML = approved.map(a =>
+    `<option value="${a.id}">${a.stallNo} ${esc(a.stallName)} · 核定${a.approvedPowerW}W · ${esc(a.boxId)}</option>`).join('')
+    || '<option value="">暂无待接线</option>';
+
+  const events = await api('GET', '/api/events');
+  const open = events.filter(e => e.status === 'OPEN');
+  document.getElementById('f-event').innerHTML = open.map(e =>
+    `<option value="${e.id}">${e.id} · ${e.type} · 摊${esc(e.primaryStallNo)}</option>`).join('')
+    || '<option value="">暂无处置中事件</option>';
+  renderEvents(events);
+
+  const risks = await api('GET', '/api/risks');
+  document.getElementById('tb-risks').innerHTML = risks.filter(r => r.requireRecheck).map(r => `
+    <tr><td>${r.id}</td><td><b>${esc(r.stallNo)}</b></td><td>${esc(r.reason)}</td>
+    <td>${r.requireRecheck ? '是' : '-'}</td>
+    <td>${r.recheckPassed === undefined || r.recheckPassed === null ? '<span class="muted">未复检</span>' : (r.recheckPassed ? '<span class="ok">通过</span>' : '<span class="err">不通过</span>')}</td>
+    <td>${r.status === 'ACTIVE' ? `
+      <button class="green" style="margin:0" onclick="recheck('${r.id}',true)">复检通过</button>
+      <button class="danger" style="margin:0" onclick="recheck('${r.id}',false)">不通过</button>` : '<span class="muted">已解除</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="muted">暂无复检任务</td></tr>';
+
+  const boxes = await api('GET', '/api/boxes');
+  document.getElementById('tb-boxes').innerHTML = boxes.map(u => {
+    const rate = Math.round(u.usageRate * 100);
+    const cls = rate >= 100 ? 'over' : rate >= 80 ? 'warn' : '';
+    return `<tr><td>${esc(u.box.code)}${u.box.backupLine ? ' <span class="pill">备用</span>' : ''}</td>
+    <td>${esc(u.box.zone)}</td><td>${u.operatingLoadW}W / ${u.safeCapacityW}W</td>
+    <td><div class="bar"><div class="${cls}" style="width:${Math.min(100,rate)}%"></div></div>${rate}%</td>
+    <td>${u.stallCount}</td><td>${u.box.status === 'NORMAL' ? '<span class="ok">正常</span>' : '<span class="err">'+u.box.status+'</span>'}</td></tr>`;
+  }).join('');
+}
+function renderEvents(events) {
+  document.getElementById('events').innerHTML = events.slice(0, 6).map(e => `
+    <details ${e.status === 'OPEN' ? 'open' : ''} style="border-bottom:1px solid var(--line);padding:6px 0">
+      <summary><b>${e.id}</b> ${e.type} · 摊${esc(e.primaryStallNo)} · ${badge(e.status)}
+        <span class="muted">摊主 ${esc(e.vendorUsername||'-')} / 电工 ${esc(e.electricianUsername||'-')} / 管理员 ${esc(e.adminUsername||'-')} / 安保 ${esc(e.securityUsername||'-')} / 收费 ${esc(e.cashierUsername||'-')}</span></summary>
+      <ul>${(e.timeline||[]).map(t=>`<li>${new Date(t.at).toLocaleString('zh-CN')} <b>${esc(t.actor)}</b>[${roleLabel(t.actorRole)}]：${esc(t.action)}</li>`).join('')}</ul>
+    </details>`).join('') || '<div class="muted">暂无事件</div>';
+}
+async function connect() {
+  try {
+    await api('POST', '/api/electrician/connections', {
+      applicationId: v('c-app'), socketNo: v('c-socket'), rcdStatus: v('c-rcd'),
+      meterInitialWh: +v('c-meter'), cablePhotoUrl: v('c-photo'), signatureUrl: v('c-sign'), remark: v('c-remark')
+    });
+    toast('接线成功，已送电', true); load();
+  } catch (e) { toast(e.message, false); }
+}
+async function confirmFault() {
+  try {
+    await api('POST', `/api/electrician/events/${v('f-event')}/fault`, {
+      faultPoint: v('f-point'), rectified: c('f-done'), rectifyPhotoUrl: v('f-photo')
+    });
+    toast('故障点与整改已记录', true); load();
+  } catch (e) { toast(e.message, false); }
+}
+async function recover() {
+  try { await api('POST', `/api/electrician/events/${v('f-event')}/recover`, {}); toast('已恢复供电', true); load(); }
+  catch (e) { toast(e.message, false); }
+}
+async function recheck(id, passed) {
+  try { await api('POST', `/api/electrician/risks/${id}/recheck`, { passed, note: passed ? '复检合格' : '隐患未消除' }); toast('复检已提交', true); load(); }
+  catch (e) { toast(e.message, false); }
+}
+function v(id){ return document.getElementById(id).value; }
+function c(id){ return document.getElementById(id).checked; }
+load();
+</script>
+</body>
+</html>

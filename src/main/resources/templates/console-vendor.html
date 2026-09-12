@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>摊主控制台</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body th:attr="data-u=${username}">
+<header>
+  <h1><span class="lamp">🏮</span> 摊主用电控制台 <span class="muted" style="font-size:12px">报名申请 · 临时加电 · 预付电费</span></h1>
+  <div class="who"><b th:text="${displayName}">摊主</b>（<span th:text="${username}">vendor</span>）
+    <form th:action="@{/logout}" method="post" style="display:inline">
+      <button class="secondary" type="submit" style="margin:0 0 0 10px;padding:4px 10px">退出</button>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="toast"></div>
+
+  <div class="grid3">
+    <div class="card"><div class="stat" id="s-total">-</div><small>我的摊位</small></div>
+    <div class="card"><div class="stat" id="s-op">-</div><small>营业中 / 断电 / 停业</small></div>
+    <div class="card"><div class="stat" id="s-bal">-</div><small>预付电费余额（元）· 多摊共用</small></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>① 夜市报名 · 提交临时用电申请</h2>
+      <div class="row">
+        <div><label>摊位号</label><input id="f-stall" placeholder="如 D05"></div>
+        <div><label>摊位名称</label><input id="f-name" placeholder="如 老张炸串"></div>
+      </div>
+      <div class="row">
+        <div><label>所在区域</label>
+          <select id="f-zone">
+            <option>A区·小吃街</option><option>B区·烧烤广场</option>
+            <option>C区·游艺区</option><option>备用线路</option>
+          </select></div>
+        <div><label>摊位类型</label>
+          <select id="f-type">
+            <option value="FOOD">餐饮热食</option><option value="SNACK">小吃加工</option>
+            <option value="DRINK">饮品冰品</option><option value="RETAIL">百货零售</option>
+            <option value="GAME">游艺娱乐</option><option value="OTHER">其他</option>
+          </select></div>
+      </div>
+      <div class="row">
+        <div><label>设备种类</label>
+          <select id="d-kind">
+            <option value="STOVE">烤炉/电热</option><option value="FREEZER">冰柜/冷柜</option>
+            <option value="LIGHTBOX">灯牌</option><option value="SPEAKER">音响</option>
+            <option value="LIGHTING">照明</option><option value="EQUIP">其他</option>
+          </select></div>
+        <div><label>设备名称</label><input id="d-name" value="电炸炉"></div>
+        <div><label>额定功率(W)</label><input id="d-w" type="number" value="1500"></div>
+        <div><label>数量</label><input id="d-qty" type="number" value="1"></div>
+      </div>
+      <div class="row">
+        <div><label>营业时段</label><input id="f-hours" value="18:00-23:30"></div>
+      </div>
+      <div class="row">
+        <label style="margin-top:14px"><input type="checkbox" id="f-flame" style="width:auto"> 使用明火</label>
+        <label style="margin-top:14px"><input type="checkbox" id="f-freezer" style="width:auto"> 有冷柜需求</label>
+        <label style="margin-top:14px"><input type="checkbox" id="f-light" checked style="width:auto"> 有照明需求</label>
+      </div>
+      <button onclick="submitApp()">提交申请并生成审批</button>
+      <div class="muted" style="margin-top:6px">系统依据 摊位位置 / 配电箱容量 / 线路负载 / 历史违规 / 同区域高峰 自动审批；高风险转管理员复核。</div>
+    </div>
+
+    <div class="card">
+      <h2>② 营业中临时加电（烤炉/冰柜/灯牌/音响）</h2>
+      <div class="row">
+        <div><label>选择摊位申请</label><select id="t-app"></select></div>
+      </div>
+      <div class="row">
+        <div><label>新增设备</label>
+          <select id="t-kind">
+            <option value="STOVE">烤炉/电热</option><option value="FREEZER">冰柜/冷柜</option>
+            <option value="LIGHTBOX">灯牌</option><option value="SPEAKER">音响</option><option value="EQUIP">其他</option>
+          </select></div>
+        <div><label>名称</label><input id="t-name" value="加台电烤炉"></div>
+        <div><label>额定功率(W)</label><input id="t-w" type="number" value="1200"></div>
+        <div><label>数量</label><input id="t-qty" type="number" value="1"></div>
+      </div>
+      <button onclick="tempPower()">重新计算同箱负载并申请加电</button>
+      <h2 style="margin-top:18px">③ 预存电费</h2>
+      <div class="row">
+        <div><label>充值金额（元）</label><input id="r-amount" type="number" value="100"></div>
+        <div style="flex:0"><button class="green" onclick="recharge()">充值</button></div>
+      </div>
+      <div class="muted">电价 1.5 元/度；临时加电费 2 元/100W；同一摊主多个摊位共用同一预付账户。</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>我的摊位与审批结果</h2>
+    <table>
+      <thead><tr><th>摊位</th><th>名称/类型</th><th>区域/配电箱</th><th>状态</th><th>风险分</th><th>核定负载</th><th>临时加电</th><th>审批意见 / 风险因子</th></tr></thead>
+      <tbody id="tb-apps"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>临时加电记录（同箱负载重算）</h2>
+    <table>
+      <thead><tr><th>时间</th><th>摊位</th><th>设备</th><th>加前负载</th><th>加后负载</th><th>安全容量</th><th>结论</th><th>费用</th><th>原因</th></tr></thead>
+      <tbody id="tb-temps"></tbody>
+    </table>
+  </div>
+</div>
+
+<script th:src="@{/js/app.js}"></script>
+<script>
+let apps = [];
+async function load() {
+  apps = await api('GET', '/api/vendor/me');
+  if (!Array.isArray(apps)) apps = [];
+  const op = apps.filter(a => a.status === 'OPERATING').length;
+  const cut = apps.filter(a => a.status === 'POWER_CUT').length;
+  const sus = apps.filter(a => a.status === 'SUSPENDED').length;
+  document.getElementById('s-total').textContent = apps.length;
+  document.getElementById('s-op').textContent = `${op} / ${cut} / ${sus}`;
+  const bill = await api('GET', '/api/billing');
+  const mine = bill.find(b => b.vendorUsername === document.body.dataset.u);
+  document.getElementById('s-bal').textContent = mine ? mine.prepaidBalanceWan.toFixed(2) : '0.00';
+
+  document.getElementById('tb-apps').innerHTML = apps.map(a => `
+    <tr>
+      <td><b>${esc(a.stallNo)}</b></td>
+      <td>${esc(a.stallName)}<br><span class="muted">${esc(a.stallType)}</span></td>
+      <td>${esc(a.zone)}<br><span class="muted">${esc(a.boxId || '-')}</span></td>
+      <td>${badge(a.status)}</td>
+      <td>${a.riskScore}${a.highRisk ? ' 🔴高风险' : ''}</td>
+      <td>${a.approvedPowerW}W</td>
+      <td>${a.tempAddCount}次 / ${a.tempAddFee}元</td>
+      <td style="max-width:380px">${esc(a.decisionRemark || '')}
+        <details><summary>风险因子</summary><ul>${(a.riskFactors||[]).map(f=>`<li>${esc(f)}</li>`).join('')}</ul></details></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">暂无申请</td></tr>';
+
+  const sel = document.getElementById('t-app');
+  const ops = apps.filter(a => a.status === 'OPERATING');
+  sel.innerHTML = ops.map(a => `<option value="${a.id}">${a.stallNo} ${esc(a.stallName)}（${a.id}）</option>`).join('')
+    || '<option value="">无营业中摊位</option>';
+
+  const temps = (await api('GET', '/api/temps')).filter(t => apps.some(a => a.id === t.applicationId));
+  document.getElementById('tb-temps').innerHTML = temps.map(t => `
+    <tr><td>${new Date(t.createdAt).toLocaleString('zh-CN')}</td><td>${esc(t.stallNo)}</td>
+    <td>${deviceLabel(t.kind)}·${esc(t.deviceName)} ${t.ratedPowerW}W×${t.quantity}</td>
+    <td>${t.boxLoadBeforeW}W</td><td>${t.boxLoadAfterW}W</td><td>${t.boxSafeCapacityW}W</td>
+    <td>${t.decision === 'ALLOWED' ? '<span class="ok">允许</span>' : '<span class="err">驳回</span>'}</td>
+    <td>${t.fee}元</td><td style="max-width:300px">${esc(t.reason)}</td></tr>`).join('')
+    || '<tr><td colspan="9" class="muted">暂无临时加电记录</td></tr>';
+}
+async function submitApp() {
+  try {
+    const body = {
+      stallNo: v('f-stall'), stallName: v('f-name'), zone: v('f-zone'), stallType: v('f-type'),
+      devices: [{ kind: v('d-kind'), name: v('d-name'), ratedPowerW: +v('d-w'), quantity: +v('d-qty') }],
+      openFlame: c('f-flame'), freezerNeeded: c('f-freezer'), lightingNeeded: c('f-light'),
+      businessHours: v('f-hours')
+    };
+    const r = await api('POST', '/api/vendor/applications', body);
+    toast(`申请 ${r.application.id}：${r.decision === 'APPROVED' ? '系统自动批准' : r.decision === 'PENDING' ? '转管理员复核' : '已驳回'} — ${r.remark}`, true);
+    load();
+  } catch (e) { toast(e.message, false); }
+}
+async function tempPower() {
+  try {
+    const r = await api('POST', '/api/vendor/temp-power', {
+      applicationId: v('t-app'), kind: v('t-kind'), deviceName: v('t-name'),
+      ratedPowerW: +v('t-w'), quantity: +v('t-qty')
+    });
+    toast(r.reason, r.decision === 'ALLOWED');
+    load();
+  } catch (e) { toast(e.message, false); }
+}
+async function recharge() {
+  try { await api('POST', '/api/vendor/billing/recharge', { vendor: '', amount: +v('r-amount') }); toast('充值成功', true); load(); }
+  catch (e) { toast(e.message, false); }
+}
+function v(id){ return document.getElementById(id).value; }
+function c(id){ return document.getElementById(id).checked; }
+load();
+</script>
+</body>
+</html>
