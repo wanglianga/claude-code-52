@@ -54,6 +54,25 @@ public class TempPowerService {
 
     public TempPowerRequest request(String appId, String vendor, DeviceKind kind, String deviceName,
                                     int ratedPowerW, int quantity, Integer maxWaitMinutes) {
+        // ---- 入参硬校验：功率/数量必须为正整数，异常请求直接 400，不落任何记录、不动账 ----
+        if (kind == null) {
+            throw new BizException("设备种类不能为空");
+        }
+        if (deviceName == null || deviceName.trim().isBlank()) {
+            throw new BizException("设备名称不能为空");
+        }
+        if (ratedPowerW <= 0) {
+            throw new BizException("设备额定功率必须为正整数（W），不允许 0 或负数");
+        }
+        if (ratedPowerW > 20000) {
+            throw new BizException("单台设备额定功率超出允许范围（≤20000W），请核对申报");
+        }
+        if (quantity <= 0) {
+            throw new BizException("设备数量必须为正整数，不允许 0 或负数");
+        }
+        if (quantity > 50) {
+            throw new BizException("单次临时加电数量超出允许范围（≤50 台），请分批申请");
+        }
         PowerApplication app = mustOperating(appId);
         if (vendor != null && !app.getVendorUsername().equalsIgnoreCase(vendor)
                 && !"ADMIN".equals(directoryRole(vendor))) {
@@ -63,7 +82,9 @@ public class TempPowerService {
         if (risk != null && risk.isRestrictDevices()) {
             TempPowerRequest denied = baseRequest(app, kind, deviceName, ratedPowerW, quantity);
             denied.setDecision(Statuses.TEMP_DENIED);
-            denied.setReason("管理员已对该摊位临时限制设备开启，暂不允许新增设备");
+            denied.setFee(0);
+            denied.setCharged(false);
+            denied.setReason("管理员已对该摊位临时限制设备开启，暂不允许新增设备。本次申请未收取任何费用。");
             denied.getSuggestions().add("联系市场管理员解除设备限制后再申请");
             store.saveTemp(denied);
             return denied;
@@ -125,8 +146,8 @@ public class TempPowerService {
         t.setRequestedArrivalBefore(LocalDateTime.now().plusMinutes(maxWait));
         t.setRiskUntil(riskUntil);
 
+        // 试算费用（仅用于余额校验；拒绝不收取，记录中费用保持 0）
         double fee = Math.ceil(t.getAddedLoadW() / 100.0) * FEE_PER_100W;
-        t.setFee(fee);
         String riskWindow = "电工接线后约 " + riskFrom.toLocalTime().format(HM) + " 起至今晚 "
                 + riskUntil.toLocalTime().format(HM);
 
@@ -174,7 +195,11 @@ public class TempPowerService {
 
         if (!rejectReasons.isEmpty()) {
             t.setDecision(Statuses.TEMP_DENIED);
-            t.setReason("临时加电审批未通过：" + String.join("；", rejectReasons));
+            // 拒绝不收取任何费用：记录费用必须为 0、未收费，避免页面误展示为已收
+            t.setFee(0);
+            t.setCharged(false);
+            t.setReason("临时加电审批未通过：" + String.join("；", rejectReasons)
+                    + "。本次申请未收取任何费用。");
             t.setSuggestions(suggestions);
             t.setDecidedBy("SYSTEM");
             t.setDecidedAt(LocalDateTime.now());
@@ -184,6 +209,8 @@ public class TempPowerService {
 
         // ---- 审批通过：待电工到场接线 ----
         t.setDecision(PENDING_APPROVAL);
+        t.setFee(fee);
+        t.setCharged(true);
         t.setDecidedBy("SYSTEM");
         t.setDecidedAt(LocalDateTime.now());
         String tip = "安全提示：新增" + kind.getLabel() + "须由电工现场接线，严禁私拉插线板；"
@@ -233,13 +260,20 @@ public class TempPowerService {
             t.getSuggestions().add("现场情况变化：同箱当前负载已升至 " + nowLoad + "W，接线即超载；请错峰或迁移备用线路后重新申请");
             t.setDecision(Statuses.TEMP_DENIED);
             t.setReason("电工到场复核：当前同箱负载 " + nowLoad + "W + 本次 " + t.getAddedLoadW()
-                    + "W 超过安全容量 " + box.safeCapacityW() + "W，拒绝接线");
+                    + "W 超过安全容量 " + box.safeCapacityW() + "W，拒绝接线；已收取的加电费 "
+                    + t.getFee() + " 元原路退还，本次未收费");
             t.setDecidedBy(electrician);
             t.setDecidedAt(LocalDateTime.now());
-            store.saveTemp(t);
-            // 审批时已扣的加电费原路退还
+            // 审批时已扣的加电费原路退还，记录费用清零
             billing.refundTempAdd(t.getVendorUsername(), t.getFee(),
                     "临时加电 " + t.getId() + " 到场复核未接线，退还加电费");
+            // 回滚当晚摊位记录中的加电统计
+            app.setTempAddCount(Math.max(0, app.getTempAddCount() - 1));
+            app.setTempAddFee(round2(Math.max(0, app.getTempAddFee() - t.getFee())));
+            store.saveApplication(app);
+            t.setFee(0);
+            t.setCharged(false);
+            store.saveTemp(t);
             throw new BizException(t.getReason());
         }
 

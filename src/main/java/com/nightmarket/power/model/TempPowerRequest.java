@@ -55,7 +55,8 @@ public class TempPowerRequest {
     private String reason;                  // 允许/驳回原因
     private List<String> suggestions = new ArrayList<>(); // 拒绝时替代位置/设备建议
     private String safetyTip;               // 批准时安全提示
-    private double fee;                     // 临时加电费
+    private double fee;                     // 临时加电费（仅审批通过计收，拒绝一律为 0）
+    private boolean charged;                // 是否实际收费（拒绝/未接线均为 false）
     private String decidedBy;
     private LocalDateTime decidedAt;
 

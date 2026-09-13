@@ -79,8 +79,8 @@
             <option value="LIGHTBOX">灯牌</option><option value="SPEAKER">音响</option><option value="EQUIP">其他</option>
           </select></div>
         <div><label>名称</label><input id="t-name" value="加台电烤炉"></div>
-        <div><label>额定功率(W)</label><input id="t-w" type="number" value="1200"></div>
-        <div><label>数量</label><input id="t-qty" type="number" value="1"></div>
+        <div><label>额定功率(W)</label><input id="t-w" type="number" value="1200" min="1" max="20000" step="1"></div>
+        <div><label>数量</label><input id="t-qty" type="number" value="1" min="1" max="50" step="1"></div>
       </div>
       <button onclick="tempPower()">提交临时加电审批（容量/邻近摊位/电工到场检查）</button>
       <div class="muted">审批通过后由值班电工到场接线才真正送电；系统会向同配电箱其他摊主预告加电摊位与风险时段。可填最长等待分钟数：
@@ -164,7 +164,9 @@ async function load() {
     <td>${t.boxLoadBeforeW}W</td><td>${t.boxLoadAfterW}W</td><td>${t.boxSafeCapacityW}W</td>
     <td>${dec}</td>
     <td>${t.effective ? '已到场 ' + new Date(t.effectiveAt).toLocaleTimeString('zh-CN') : (t.etaMinutes>=0 ? '约'+t.etaMinutes+'分钟' : '无法到场')}</td>
-    <td>${t.fee}元${t.effective ? '<br><span class="muted">📷'+esc(t.hookupPhotoUrl)+'</span>' : ''}</td>
+    <td>${t.decision === 'DENIED'
+      ? '<span class="muted">未收费 0元</span>'
+      : (t.fee + '元' + (t.charged === false ? '（未收）' : ''))}${t.effective ? '<br><span class="muted">📷'+esc(t.hookupPhotoUrl)+'</span>' : ''}</td>
     <td style="max-width:340px">${esc(t.reason)}<ul class="muted" style="margin:4px 0 0 16px">${extra}</ul></td></tr>`;
   }).join('') || '<tr><td colspan="10" class="muted">暂无临时加电记录</td></tr>';
 
