@@ -20,7 +20,6 @@ output/playwright/
 # Environment, credentials, and local connection material
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 *.p12
