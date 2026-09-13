@@ -21,13 +21,19 @@ public class OwnershipService {
         this.billing = billing;
     }
 
-    /** 夜间撤摊：记录电表终值、结算电费、断电、摊位关闭（管理员可代办） */
+    /** 夜间撤摊：记录电表终值（接线用电的摊位同步结算电费）、断电、摊位关闭 */
     public StallOwnership withdraw(String stallNo, String actor, int meterEndWh, String remark) {
         PowerApplication app = store.findByStallNo(stallNo)
                 .orElseThrow(() -> new BizException("摊位 " + stallNo + " 无用电档案"));
         StallOwnership own = require(stallNo);
-        if (Statuses.OPERATING.equals(app.getStatus()) || Statuses.POWER_CUT.equals(app.getStatus())) {
+        boolean connected = store.findConnectionByApp(app.getId()).isPresent();
+        if ((Statuses.OPERATING.equals(app.getStatus()) || Statuses.POWER_CUT.equals(app.getStatus()))
+                && connected) {
             billing.settleElectricity(app, meterEndWh);
+        } else {
+            // 未接线即撤摊：保留终值读数留痕，但不计电费（无电表初值/未实际用电）
+            app.setMeterEndWh(meterEndWh);
+            store.saveApplication(app);
         }
         app.setStatus(Statuses.CLOSED);
         store.saveApplication(app);

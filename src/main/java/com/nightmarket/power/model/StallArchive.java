@@ -31,6 +31,8 @@ public class StallArchive {
     private String grade;                 // A/B/C/D
     private int allocationScore;          // 下期摊位分配积分
     private String advice;                // 下期分配建议
+    private boolean withdrawnEarly;       // 是否夜间提前撤摊
+    private LocalDateTime withdrawnAt;    // 撤摊时间
     private LocalDateTime archivedAt;
 
     public StallArchive(String id) {

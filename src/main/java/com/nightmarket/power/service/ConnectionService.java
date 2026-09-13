@@ -22,8 +22,18 @@ public class ConnectionService {
         if (risk != null && risk.isRequireRecheck() && !risk.isRecheckPassed()) {
             throw new BizException("该摊位处于高风险复检状态，须电工复检通过后方可接线送电");
         }
-        if (!vendorSigned) {
-            throw new BizException("摊主未签字确认，不能送电");
+        // 必填现场凭证校验：缺任一凭证直接拒绝，申请保持“已批准·待接线”，不得送电
+        if (isBlank(socketNo)) {
+            throw new BizException("缺少插座编号，不能接线送电");
+        }
+        if (isBlank(rcdStatus)) {
+            throw new BizException("缺少漏保状态确认，不能接线送电");
+        }
+        if (isBlank(cablePhoto)) {
+            throw new BizException("缺少线缆照片，不能接线送电");
+        }
+        if (!vendorSigned || isBlank(signature)) {
+            throw new BizException("摊主未签字确认（签字凭证为空），不能送电；请先取得摊主签字");
         }
         ConnectionRecord rec = new ConnectionRecord("C" + store.nextId("conn"), appId, app.getStallNo());
         rec.setElectricianUsername(electrician);
@@ -40,6 +50,10 @@ public class ConnectionService {
         app.setMeterStartWh(meterInitial);
         store.saveApplication(app);
         return rec;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     public PowerApplication mustApproved(String appId) {

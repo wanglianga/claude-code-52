@@ -64,6 +64,13 @@ public class ArchiveService {
                 .filter(p -> p != null && !p.isBlank()).forEach(photos::add);
         arc.setRectifyPhotos(photos);
 
+        // 撤摊信息随档案保留，避免提前撤摊商户在下期评级中断档
+        StallOwnership own = store.getOwnership(app.getStallNo());
+        if (own != null && own.isWithdrawn()) {
+            arc.setWithdrawnEarly(true);
+            arc.setWithdrawnAt(own.getWithdrawnAt());
+        }
+
         // 评级：以违规扣分为主，事故次数与高风险标记加权
         int demerit = points + events.size() * 2 + (app.isHighRisk() ? 4 : 0);
         String grade;
@@ -96,18 +103,19 @@ public class ArchiveService {
         return arc;
     }
 
-    /** 闭市：所有未关闭摊位统一读表归档 */
+    /**
+     * 闭市：所有未归档摊位统一读表归档，包括夜间已提前撤摊（CLOSED）的摊位，
+     * 确保撤摊商户在下期分配与评级中不断档。
+     */
     public List<StallArchive> closeMarket(int defaultEndWh) {
         List<StallArchive> result = new ArrayList<>();
         for (PowerApplication app : store.allApplications()) {
-            if (!app.isArchived()
-                    && (Statuses.OPERATING.equals(app.getStatus())
-                        || Statuses.POWER_CUT.equals(app.getStatus())
-                        || Statuses.SUSPENDED.equals(app.getStatus())
-                        || Statuses.APPROVED.equals(app.getStatus()))) {
-                int end = app.getMeterEndWh() > 0 ? app.getMeterEndWh() : defaultEndWh;
-                result.add(archive(app, end));
+            if (app.isArchived() || Statuses.REJECTED.equals(app.getStatus())) {
+                continue;
             }
+            // 已撤摊且完成读表结算的沿用其读数；其余按统一终值结算
+            int end = app.getMeterEndWh() > 0 ? app.getMeterEndWh() : defaultEndWh;
+            result.add(archive(app, end));
         }
         return result;
     }

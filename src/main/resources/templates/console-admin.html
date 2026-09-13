@@ -184,7 +184,8 @@ async function load() {
 
   const arcs = await api('GET', '/api/archives');
   document.getElementById('tb-arc').innerHTML = arcs.map(a=>`
-    <tr><td><span class="badge b-${a.grade}">${a.grade}</span></td><td><b>${esc(a.stallNo)}</b><br>${esc(a.stallName)}</td>
+    <tr><td><span class="badge b-${a.grade}">${a.grade}</span></td><td><b>${esc(a.stallNo)}</b><br>${esc(a.stallName)}
+      ${a.withdrawnEarly ? `<span class="badge b-CLOSED">夜间撤摊 ${a.withdrawnAt ? new Date(a.withdrawnAt).toLocaleString('zh-CN') : ''}</span>` : ''}</td>
     <td>${esc(a.vendorUsername)}</td><td>${a.consumedWh}Wh<br>${a.electricityFeeWan}元</td>
     <td>${a.violationPoints}<br><span class="muted" style="font-size:11px">${(a.violations||[]).map(esc).join('；')}</span></td>
     <td>${a.tempAddCount}次/${a.tempAddFeeWan}元</td>
