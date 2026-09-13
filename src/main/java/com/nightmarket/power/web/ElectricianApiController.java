@@ -4,6 +4,7 @@ import com.nightmarket.power.model.*;
 import com.nightmarket.power.service.ConnectionService;
 import com.nightmarket.power.service.IncidentService;
 import com.nightmarket.power.service.RiskControlService;
+import com.nightmarket.power.service.TempPowerService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,12 +19,14 @@ public class ElectricianApiController {
     private final ConnectionService connectionService;
     private final IncidentService incidentService;
     private final RiskControlService riskControlService;
+    private final TempPowerService tempPowerService;
 
     public ElectricianApiController(ConnectionService connectionService, IncidentService incidentService,
-                                    RiskControlService riskControlService) {
+                                    RiskControlService riskControlService, TempPowerService tempPowerService) {
         this.connectionService = connectionService;
         this.incidentService = incidentService;
         this.riskControlService = riskControlService;
+        this.tempPowerService = tempPowerService;
     }
 
     /** 现场接线送电：插座编号、漏保、电表初值、线缆照片、摊主签字 */
@@ -41,6 +44,14 @@ public class ElectricianApiController {
         IncidentEvent e = incidentService.confirmFault(
                 id, CurrentUser.name(), req.faultPoint(), req.rectified(), req.rectifyPhotoUrl());
         return Map.of("success", true, "event", e);
+    }
+
+    /** 临时加电审批通过后，电工到场接线生效（插座+接线照片，收费/提示已入当晚记录） */
+    @PostMapping("/temp-requests/{id}/hookup")
+    public Map<String, Object> hookup(@PathVariable String id, @RequestBody Dtos.TempHookupRequest req) {
+        TempPowerRequest t = tempPowerService.hookup(id, CurrentUser.name(),
+                req.socketNo(), req.hookupPhotoUrl());
+        return Map.of("success", true, "request", t);
     }
 
     /** 高风险摊位管理员要求复检后的电工复检结论 */

@@ -82,7 +82,9 @@
         <div><label>额定功率(W)</label><input id="t-w" type="number" value="1200"></div>
         <div><label>数量</label><input id="t-qty" type="number" value="1"></div>
       </div>
-      <button onclick="tempPower()">重新计算同箱负载并申请加电</button>
+      <button onclick="tempPower()">提交临时加电审批（容量/邻近摊位/电工到场检查）</button>
+      <div class="muted">审批通过后由值班电工到场接线才真正送电；系统会向同配电箱其他摊主预告加电摊位与风险时段。可填最长等待分钟数：
+        <input id="t-wait" type="number" value="15" style="width:70px;display:inline-block"></div>
       <h2 style="margin-top:18px">③ 预存电费</h2>
       <div class="row">
         <div><label>充值金额（元）</label><input id="r-amount" type="number" value="100"></div>
@@ -101,11 +103,16 @@
   </div>
 
   <div class="card">
-    <h2>临时加电记录（同箱负载重算）</h2>
+    <h2>临时加电审批与同箱负载重算</h2>
     <table>
-      <thead><tr><th>时间</th><th>摊位</th><th>设备</th><th>加前负载</th><th>加后负载</th><th>安全容量</th><th>结论</th><th>费用</th><th>原因</th></tr></thead>
+      <thead><tr><th>时间</th><th>摊位</th><th>设备</th><th>加前负载</th><th>加后负载</th><th>安全容量</th><th>结论</th><th>电工到场</th><th>费用</th><th>原因/安全提示/替代建议</th></tr></thead>
       <tbody id="tb-temps"></tbody>
     </table>
+  </div>
+
+  <div class="card">
+    <h2>📢 我的用电通知（加电预告/批准/生效）</h2>
+    <div id="notices"></div>
   </div>
 </div>
 
@@ -143,13 +150,30 @@ async function load() {
     || '<option value="">无营业中摊位</option>';
 
   const temps = (await api('GET', '/api/temps')).filter(t => apps.some(a => a.id === t.applicationId));
-  document.getElementById('tb-temps').innerHTML = temps.map(t => `
-    <tr><td>${new Date(t.createdAt).toLocaleString('zh-CN')}</td><td>${esc(t.stallNo)}</td>
+  document.getElementById('tb-temps').innerHTML = temps.map(t => {
+    const dec = t.decision === 'ALLOWED'
+      ? '<span class="ok">已接线生效</span>'
+      : t.decision === 'PENDING_APPROVAL'
+        ? '<span class="badge b-APPROVED">待电工接线</span>'
+        : '<span class="err">审批拒绝</span>';
+    const extra = t.decision === 'DENIED'
+      ? (t.suggestions||[]).map(s=>`<li>${esc(s)}</li>`).join('')
+      : (t.safetyTip ? `<li>${esc(t.safetyTip)}</li>` : '');
+    return `<tr><td>${new Date(t.createdAt).toLocaleString('zh-CN')}</td><td>${esc(t.stallNo)}</td>
     <td>${deviceLabel(t.kind)}·${esc(t.deviceName)} ${t.ratedPowerW}W×${t.quantity}</td>
     <td>${t.boxLoadBeforeW}W</td><td>${t.boxLoadAfterW}W</td><td>${t.boxSafeCapacityW}W</td>
-    <td>${t.decision === 'ALLOWED' ? '<span class="ok">允许</span>' : '<span class="err">驳回</span>'}</td>
-    <td>${t.fee}元</td><td style="max-width:300px">${esc(t.reason)}</td></tr>`).join('')
-    || '<tr><td colspan="9" class="muted">暂无临时加电记录</td></tr>';
+    <td>${dec}</td>
+    <td>${t.effective ? '已到场 ' + new Date(t.effectiveAt).toLocaleTimeString('zh-CN') : (t.etaMinutes>=0 ? '约'+t.etaMinutes+'分钟' : '无法到场')}</td>
+    <td>${t.fee}元${t.effective ? '<br><span class="muted">📷'+esc(t.hookupPhotoUrl)+'</span>' : ''}</td>
+    <td style="max-width:340px">${esc(t.reason)}<ul class="muted" style="margin:4px 0 0 16px">${extra}</ul></td></tr>`;
+  }).join('') || '<tr><td colspan="10" class="muted">暂无临时加电记录</td></tr>';
+
+  const notices = await api('GET', '/api/notifications/mine');
+  document.getElementById('notices').innerHTML = notices.slice(0, 12).map(n => `
+    <div style="border-bottom:1px solid var(--line);padding:8px 0;font-size:13px">
+      <b>${esc(n.title)}</b> <span class="muted">${new Date(n.createdAt).toLocaleString('zh-CN')} · 风险时段 ${esc(n.riskUntil||'')}</span>
+      <div>${esc(n.content)}</div>
+    </div>`).join('') || '<div class="muted">暂无通知</div>';
 }
 async function submitApp() {
   try {
@@ -168,9 +192,10 @@ async function tempPower() {
   try {
     const r = await api('POST', '/api/vendor/temp-power', {
       applicationId: v('t-app'), kind: v('t-kind'), deviceName: v('t-name'),
-      ratedPowerW: +v('t-w'), quantity: +v('t-qty')
+      ratedPowerW: +v('t-w'), quantity: +v('t-qty'), maxWaitMinutes: +v('t-wait')
     });
-    toast(r.reason, r.decision === 'ALLOWED');
+    const ok = r.decision !== 'DENIED';
+    toast(r.reason + (ok ? '' : '（已给出替代建议）'), ok);
     load();
   } catch (e) { toast(e.message, false); }
 }

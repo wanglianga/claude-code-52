@@ -51,6 +51,14 @@
   </div>
 
   <div class="card">
+    <h2>临时加电到场接线任务（审批通过后执行）</h2>
+    <table>
+      <thead><tr><th>申请号</th><th>摊位</th><th>设备</th><th>加后负载率</th><th>邻近冷柜</th><th>安全提示/收费</th><th>接线</th></tr></thead>
+      <tbody id="tb-temp"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
     <h2>高风险摊位 · 管理员要求电工复检</h2>
     <table>
       <thead><tr><th>措施号</th><th>摊位</th><th>原因</th><th>要求复检</th><th>复检结论</th><th>操作</th></tr></thead>
@@ -87,6 +95,18 @@ async function load() {
     `<option value="${e.id}">${e.id} · ${e.type} · 摊${esc(e.primaryStallNo)}</option>`).join('')
     || '<option value="">暂无处置中事件</option>';
   renderEvents(events);
+
+  const temps = await api('GET', '/api/temps');
+  document.getElementById('tb-temp').innerHTML = temps.filter(t => t.decision === 'PENDING_APPROVAL').map(t => `
+    <tr><td>${t.id}</td><td><b>${esc(t.stallNo)}</b><br>${esc(t.stallName)}</td>
+    <td>${deviceLabel(t.kind)}·${esc(t.deviceName)} ${t.ratedPowerW}W×${t.quantity}</td>
+    <td>${Math.round(t.boxUsageAfter*100)}%<br><span class="muted">${t.boxLoadAfterW}W/${t.boxSafeCapacityW}W</span></td>
+    <td>${t.hasNeighborFreezer ? '有冷柜 '+t.neighborFreezerLoadW+'W ⚠️' : '无'}</td>
+    <td style="max-width:280px" class="muted">${esc(t.safetyTip)}<br>加电费 ${t.fee}元已收</td>
+    <td><input id="h-socket-${t.id}" value="SOCKET-TEMP-${t.id.slice(1)}" style="margin-bottom:4px">
+        <input id="h-photo-${t.id}" value="/photos/temp-hookup-${t.id}.jpg" style="margin-bottom:4px">
+        <button class="green" style="margin:0;padding:5px 10px" onclick="hookup('${t.id}')">到场接线送电</button></td></tr>`).join('')
+    || '<tr><td colspan="7" class="muted">暂无待接线任务</td></tr>';
 
   const risks = await api('GET', '/api/risks');
   document.getElementById('tb-risks').innerHTML = risks.filter(r => r.requireRecheck).map(r => `
@@ -136,6 +156,14 @@ async function confirmFault() {
 async function recover() {
   try { await api('POST', `/api/electrician/events/${v('f-event')}/recover`, {}); toast('已恢复供电', true); load(); }
   catch (e) { toast(e.message, false); }
+}
+async function hookup(id) {
+  try {
+    await api('POST', `/api/electrician/temp-requests/${id}/hookup`, {
+      socketNo: v('h-socket-'+id), hookupPhotoUrl: v('h-photo-'+id)
+    });
+    toast('已到场接线送电，同箱摊主已收到生效通知', true); load();
+  } catch (e) { toast(e.message, false); }
 }
 async function recheck(id, passed) {
   try { await api('POST', `/api/electrician/risks/${id}/recheck`, { passed, note: passed ? '复检合格' : '隐患未消除' }); toast('复检已提交', true); load(); }

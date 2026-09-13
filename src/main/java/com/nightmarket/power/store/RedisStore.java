@@ -262,6 +262,29 @@ public class RedisStore {
                 .collect(Collectors.toList());
     }
 
+    // ---------- 通知 ----------
+    public void saveNotification(Notification n) {
+        redis.opsForValue().set(P + "notice:" + n.getId(), n);
+    }
+
+    public Notification getNotification(String id) {
+        return (Notification) redis.opsForValue().get(P + "notice:" + id);
+    }
+
+    public List<Notification> allNotifications() {
+        return scan(P + "notice:*").stream()
+                .map(k -> (Notification) redis.opsForValue().get(k))
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(Notification::getCreatedAt).reversed())
+                .collect(Collectors.toList());
+    }
+
+    public List<Notification> notificationsByVendor(String vendor) {
+        return allNotifications().stream()
+                .filter(n -> vendor.equalsIgnoreCase(n.getTargetVendor()))
+                .collect(Collectors.toList());
+    }
+
     // ---------- 营业日期 ----------
     public String marketDate() {
         Object v = redis.opsForValue().get(P + "stall-date");

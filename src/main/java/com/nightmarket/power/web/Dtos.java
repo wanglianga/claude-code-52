@@ -24,7 +24,10 @@ public final class Dtos {
     }
 
     public record TempPowerRequest(String applicationId, String kind, String deviceName,
-                                   int ratedPowerW, Integer quantity) {
+                                   int ratedPowerW, Integer quantity, Integer maxWaitMinutes) {
+    }
+
+    public record TempHookupRequest(String socketNo, String hookupPhotoUrl) {
     }
 
     public record RechargeRequest(String vendor, double amount) {

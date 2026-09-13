@@ -45,15 +45,18 @@ public class VendorApiController {
                 "decision", app.getStatus(), "remark", app.getDecisionRemark());
     }
 
-    /** 营业中临时增加烤炉/冰柜/灯牌/音响：自动重算同箱负载 */
+    /** 营业中临时增加烤炉/冰柜/灯牌/音响：容量+邻近负载+电工到场审批，待电工到场接线生效 */
     @PostMapping("/temp-power")
     public Map<String, Object> tempPower(@RequestBody Dtos.TempPowerRequest req) {
         TempPowerRequest t = tempPowerService.request(
                 req.applicationId(), CurrentUser.name(),
                 DeviceKind.fromCode(req.kind()), req.deviceName(),
-                req.ratedPowerW(), req.quantity() == null ? 1 : req.quantity());
-        return Map.of("success", Statuses.TEMP_ALLOWED.equals(t.getDecision()),
-                "decision", t.getDecision(), "request", t, "reason", t.getReason());
+                req.ratedPowerW(), req.quantity() == null ? 1 : req.quantity(),
+                req.maxWaitMinutes());
+        boolean ok = !Statuses.TEMP_DENIED.equals(t.getDecision());
+        return Map.of("success", ok,
+                "decision", t.getDecision(), "request", t, "reason", t.getReason(),
+                "suggestions", t.getSuggestions());
     }
 
     /** 预存电费（摊主给自己充值；ADMIN 可代充，body 中指定 vendor） */

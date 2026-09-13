@@ -127,4 +127,20 @@ public class QueryApiController {
                         "phone", u.getPhone() == null ? "" : u.getPhone()))
                 .toList();
     }
+
+    /** 当前登录人的站内通知（加电预告/批准/生效、接线任务、收费提醒） */
+    @GetMapping("/notifications/mine")
+    public List<Notification> myNotifications() {
+        return store.notificationsByVendor(CurrentUser.name());
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/notifications/{id}/read")
+    public Map<String, Object> markRead(@org.springframework.web.bind.annotation.PathVariable String id) {
+        Notification n = store.getNotification(id);
+        if (n != null && CurrentUser.name().equalsIgnoreCase(n.getTargetVendor())) {
+            n.setRead(true);
+            store.saveNotification(n);
+        }
+        return Map.of("success", true);
+    }
 }

@@ -64,6 +64,19 @@ public class BillingService {
         store.saveBilling(b);
     }
 
+    /** 审批通过已计费、但电工到场复核无法接线时原路退还加电费 */
+    public void refundTempAdd(String vendor, double fee, String remark) {
+        if (fee <= 0) {
+            return;
+        }
+        BillingAccount b = account(vendor);
+        b.setPrepaidBalanceWan(round2(b.getPrepaidBalanceWan() + fee));
+        b.setTotalTempAddFeeWan(round2(Math.max(0, b.getTotalTempAddFeeWan() - fee)));
+        b.addEntry("TEMP_ADD_REFUND", fee, remark);
+        b.setLowBalance(b.getPrepaidBalanceWan() < LOW_BALANCE);
+        store.saveBilling(b);
+    }
+
     /** 闭市结算电表用电量并扣费 */
     public double settleElectricity(PowerApplication app, int meterEndWh) {
         int start = app.getMeterStartWh();
